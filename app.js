@@ -70,24 +70,37 @@ function setupTabs() {
   });
 }
 
-// Load JSON data
+// Load JSON/JS data
 async function loadData() {
-  try {
-    const res = await fetch('data/symmetry_duplicates.json');
-    if (res.ok) {
-      duplicateReport = await res.json();
-    }
-  } catch (e) {
-    console.error("Could not fetch symmetry_duplicates.json", e);
+  // First check if loaded via <script> tag (offline file:/// mode)
+  if (window.DUPLICATE_REPORT) {
+    duplicateReport = window.DUPLICATE_REPORT;
+  }
+  if (window.PATTERN_INDEX) {
+    patternIndex = window.PATTERN_INDEX;
   }
 
-  try {
-    const resIdx = await fetch('data/pattern_symmetry_index.json');
-    if (resIdx.ok) {
-      patternIndex = await resIdx.json();
+  // Fallback: try fetch (if served via http://)
+  if (!duplicateReport) {
+    try {
+      const res = await fetch('data/symmetry_duplicates.json');
+      if (res.ok) {
+        duplicateReport = await res.json();
+      }
+    } catch (e) {
+      console.warn("Could not fetch symmetry_duplicates.json", e);
     }
-  } catch (e) {
-    console.error("Could not fetch pattern_symmetry_index.json", e);
+  }
+
+  if (!patternIndex) {
+    try {
+      const resIdx = await fetch('data/pattern_symmetry_index.json');
+      if (resIdx.ok) {
+        patternIndex = await resIdx.json();
+      }
+    } catch (e) {
+      console.warn("Could not fetch pattern_symmetry_index.json", e);
+    }
   }
 
   // Update header stats
