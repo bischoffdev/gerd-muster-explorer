@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerd Doppelsuche — Vollständige D4-Symmetrie Duplikatanalyse (34.344 Muster)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-badge">D₄</div>
+        <div>
+          <h1>Gerd Doppelsuche <span class="badge-sub">D₄-Symmetrie Scanner</span></h1>
+          <p class="subtitle">Vollständige Analyse aller <strong>34.344 Muster</strong> (159 Seiten) inkl. Drehungen (90°, 180°, 270°) & Spiegelungen (H, V, Diagonal)</p>
+        </div>
+      </div>
+      <div class="header-stats">
+        <div class="stat-pill"><span class="stat-num">34.344</span> Muster</div>
+        <div class="stat-pill"><span class="stat-num">21.351</span> Symmetrie-Klassen</div>
+        <div class="stat-pill highlight"><span class="stat-num">11.781</span> Duplikat-Gruppen</div>
+        <div class="stat-pill"><span class="stat-num">24.774</span> Duplikat-Muster</div>
+      </div>
+    </header>
+
+    <!-- Main Navigation Tabs -->
+    <nav class="nav-tabs" role="tablist">
+      <button class="tab-btn active" id="tab-btn-dashboard" data-tab="tab-dashboard">
+        <span class="icon">📊</span> Übersicht & Duplikat-Explorer
+      </button>
+      <button class="tab-btn" id="tab-btn-checker" data-tab="tab-checker">
+        <span class="icon">🎯</span> Mustersuche (Seite / Spalte / Zeile)
+      </button>
+      <button class="tab-btn" id="tab-btn-compare" data-tab="tab-compare">
+        <span class="icon">🔄</span> Symmetrie-Vergleicher
+      </button>
+      <button class="tab-btn" id="tab-btn-export" data-tab="tab-export">
+        <span class="icon">📥</span> CSV & Datenexport
+      </button>
+    </nav>
+
+    <!-- Main Content Panes -->
+    <main class="main-content">
+
+      <!-- TAB 1: DUPLIKAT EXPLORER -->
+      <section id="tab-dashboard" class="tab-pane active">
+        <!-- Key Metrics Cards -->
+        <div class="metrics-row">
+          <div class="metric-box">
+            <div class="metric-val">34.344</div>
+            <div class="metric-lbl">Gescannte Muster gesamt</div>
+            <div class="metric-sub">159 Seiten à 216 Muster</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-val">21.351</div>
+            <div class="metric-lbl">Echte Symmetrie-Klassen</div>
+            <div class="metric-sub">Unter Diedergruppe D₄</div>
+          </div>
+          <div class="metric-box highlight">
+            <div class="metric-val">11.781</div>
+            <div class="metric-lbl">Duplikat-Gruppen (D₄)</div>
+            <div class="metric-sub">Mit Drehung/Spiegelung</div>
+          </div>
+          <div class="metric-box compare-box">
+            <div class="metric-val">8.509</div>
+            <div class="metric-lbl">Exakte Duplikate</div>
+            <div class="metric-sub">Ohne Drehung/Spiegelung</div>
+          </div>
+        </div>
+
+        <div class="callout-card">
+          <div class="callout-icon">💡</div>
+          <div class="callout-text">
+            <h3>D₄-Symmetrie Kriterium</h3>
+            <p>Zwei Muster gelten als Duplikate, wenn sie durch eine der <strong>8 Symmetrie-Operationen</strong> des Quadrats aufeinander abgebildet werden können: <strong>Identität (0°), 90°, 180°, 270° Drehung</strong> sowie <strong>horizontale, vertikale oder diagonale Spiegelung</strong>.</p>
+          </div>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <label for="filter-trans">Symmetrie-Typ:</label>
+            <select id="filter-trans" class="control-select">
+              <option value="all">Alle Transformationen (11.781)</option>
+              <option value="identisch">Identisch (0° Drehung)</option>
+              <option value="rot90">90° gedreht</option>
+              <option value="rot180">180° gedreht</option>
+              <option value="rot270">270° gedreht</option>
+              <option value="spiegel_h">Horizontal gespiegelt</option>
+              <option value="spiegel_v">Vertikal gespiegelt</option>
+              <option value="diag_main">Diagonal gespiegelt</option>
+            </select>
+
+            <label for="filter-count">Vorkommen:</label>
+            <select id="filter-count" class="control-select">
+              <option value="all">Alle Gruppengrößen</option>
+              <option value="2">Exakt 2-fach</option>
+              <option value="3">Exakt 3-fach</option>
+              <option value="4+">4-fach oder mehr</option>
+            </select>
+          </div>
+          <div class="toolbar-right">
+            <input type="text" id="search-page-input" placeholder="Nach Seite suchen (z.B. 12)..." class="search-input">
+            <span class="count-badge" id="results-count-badge">Lade Duplikate...</span>
+          </div>
+        </div>
+
+        <!-- Master-Detail Split Layout -->
+        <div class="explorer-layout">
+          <!-- Duplicates List -->
+          <div class="dup-list-card">
+            <div class="list-header">
+              <h3>Gefundene Duplikat-Gruppen</h3>
+              <span class="sub-info">Klicke auf eine Gruppe für die Detailansicht</span>
+            </div>
+            <div id="duplicate-groups-container" class="duplicate-groups-container">
+              <div class="loading-state">Lade Duplikat-Daten...</div>
+            </div>
+            <div class="pagination-bar">
+              <button id="btn-prev-page" class="btn btn-secondary">◀ Vorherige</button>
+              <span id="page-indicator">Seite 1 / 1</span>
+              <button id="btn-next-page" class="btn btn-secondary">Nächste ▶</button>
+            </div>
+          </div>
+
+          <!-- Group Detail Panel -->
+          <div class="dup-detail-card" id="dup-detail-panel">
+            <div class="empty-state">Wähle eine Duplikat-Gruppe aus der Liste links aus</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: MUSTERSUCHE (SEITE / SPALTE / ZEILE) -->
+      <section id="tab-checker" class="tab-pane">
+        <div class="card">
+          <div class="card-header">
+            <h3>Beliebiges Muster im Dokument abfragen</h3>
+            <p>Gib eine Seitenzahl (1–159), Spalte (1–12) und Zeile (1–18) ein, um sofort zu prüfen, ob und wo Duplikate existieren.</p>
+          </div>
+          <div class="checker-form">
+            <div class="form-group">
+              <label for="check-page">Seite (1–159):</label>
+              <input type="number" id="check-page" min="1" max="159" value="12" class="form-input">
+            </div>
+            <div class="form-group">
+              <label for="check-col">Spalte (1–12):</label>
+              <input type="number" id="check-col" min="1" max="12" value="1" class="form-input">
+            </div>
+            <div class="form-group">
+              <label for="check-row">Zeile (1–18):</label>
+              <input type="number" id="check-row" min="1" max="18" value="3" class="form-input">
+            </div>
+            <button id="btn-run-check" class="btn btn-primary">Muster analysieren</button>
+          </div>
+
+          <div id="checker-result-area" class="checker-result-area"></div>
+        </div>
+      </section>
+
+      <!-- TAB 3: SYMMETRIE VERGLEICHER -->
+      <section id="tab-compare" class="tab-pane">
+        <div class="card">
+          <div class="card-header">
+            <h3>Interaktiver Symmetrie-Transformator</h3>
+            <p>Wähle eine der 8 Transformationen, um live zu sehen, wie ein 7×7 Muster gedreht und gespiegelt wird.</p>
+          </div>
+          <div class="transformer-layout">
+            <div class="trans-box">
+              <h4>Original-Muster</h4>
+              <div id="transform-orig-grid" class="pattern-matrix"></div>
+              <div class="trans-controls">
+                <button class="btn btn-secondary" id="btn-sample-pattern">Beispiel-Muster wechseln</button>
+              </div>
+            </div>
+
+            <div class="trans-arrow-area">
+              <div class="arrow-symbol">➔</div>
+              <div class="trans-buttons-grid">
+                <button class="trans-btn active" data-op="identisch">0° (Identisch)</button>
+                <button class="trans-btn" data-op="rot90">90° CW Drehung</button>
+                <button class="trans-btn" data-op="rot180">180° Drehung</button>
+                <button class="trans-btn" data-op="rot270">270° CW Drehung</button>
+                <button class="trans-btn" data-op="spiegel_h">Horizontal spiegeln</button>
+                <button class="trans-btn" data-op="spiegel_v">Vertikal spiegeln</button>
+                <button class="trans-btn" data-op="diag_main">Hauptdiagonale</button>
+                <button class="trans-btn" data-op="diag_anti">Nebendiagonale</button>
+              </div>
+            </div>
+
+            <div class="trans-box">
+              <h4 id="transform-result-title">Transformiertes Muster (Identisch)</h4>
+              <div id="transform-res-grid" class="pattern-matrix"></div>
+              <p id="transform-op-desc" class="trans-desc">Keine Drehung oder Spiegelung angewendet.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: EXPORT -->
+      <section id="tab-export" class="tab-pane">
+        <div class="card">
+          <div class="card-header">
+            <h3>Daten & Berichte herunterladen</h3>
+            <p>Die vollständigen Analyseergebnisse stehen in standardisierten Formaten zur Verfügung.</p>
+          </div>
+          <div class="export-options-grid">
+            <div class="export-card">
+              <div class="export-icon">📊</div>
+              <h4>CSV-Tabelle für Microsoft Excel</h4>
+              <p>Enthält alle 24.774 Duplikat-Vorkommen mit Gruppe, Seitenzahl, Spalte, Zeile, Symmetrie-Beziehung und Bitmask.</p>
+              <a href="data/duplikate_d4_symmetrie.csv" download class="btn btn-primary">CSV herunterladen (Excel)</a>
+            </div>
+
+            <div class="export-card">
+              <div class="export-icon">{ }</div>
+              <h4>Vollständiger JSON-Datensatz</h4>
+              <p>Strukturierte Daten aller 11.781 Gruppen inklusive 7×7 Matrizen für programmatische Weiterverarbeitung.</p>
+              <a href="data/symmetry_duplicates.json" download class="btn btn-secondary">JSON-Bericht herunterladen</a>
+            </div>
+          </div>
+
+          <div class="script-run-box">
+            <h4>Python-Skripte im Projektverzeichnis:</h4>
+            <pre><code># Erneuten vollständigen Scan ausführen:
+python scripts/find_symmetry_duplicates.py
+
+# Neue CSV-Tabelle erzeugen:
+python scripts/export_duplicates_csv.py</code></pre>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
