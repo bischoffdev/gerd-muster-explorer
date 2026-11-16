@@ -1,12 +1,17 @@
-// Gerd Doppelsuche — D4 Symmetry Duplicate Scanner
+// Gerd Doppelsuche — D4 Symmetry Duplicate Scanner & Analyzer
 
 let duplicateReport = null;
-let patternIndex = null;
 let filteredGroups = [];
 let currentPage = 1;
 const ITEMS_PER_PAGE = 40;
 
 let selectedGroup = null;
+
+// In-memory set of resolved patterns for the current session (no local persistence)
+let resolvedPatterns = new Set();
+try {
+  localStorage.removeItem('gerd_resolved_patterns');
+} catch (e) {}
 
 // Transformations for D4 symmetry
 const TRANSFORMATIONS = {
@@ -31,95 +36,152 @@ const TRANS_NAMES = {
   "diag_anti": "Diagonal gespiegelt (Nebendiagonale)"
 };
 
-// Sample pattern for transformer tab
-let sampleMatrix = [
-  [1, 1, 1, 1, 1, 1, 1],
-  [1, 0, 1, 0, 0, 0, 0],
-  [1, 0, 1, 1, 1, 0, 1],
-  [1, 0, 0, 0, 1, 0, 1],
-  [1, 0, 1, 1, 1, 0, 1],
-  [1, 0, 0, 1, 0, 0, 1],
-  [1, 0, 1, 1, 1, 1, 1]
-];
+// Helper keys
+function getPatternKey(page, col, row) {
+  return `${page}_${col}_${row}`;
+}
 
-document.addEventListener('DOMContentLoaded', async () => {
-  setupTabs();
-  setupTransformer();
-  setupChecker();
+function isPatternResolved(m) {
+  if (m.is_first) return false;
+  return resolvedPatterns.has(getPatternKey(m.page, m.col, m.row));
+}
 
-  await loadData();
+function getOpenMembers(group) {
+  return group.members.filter(m => !isPatternResolved(m));
+}
+
+function isGroupResolved(group) {
+  // A duplicate is solved once fewer than 2 open occurrences remain (only the reference remains)
+  return getOpenMembers(group).length < 2;
+}
+
+// Toggle resolution of a specific pattern instance (only non-reference duplicates)
+window.toggleResolvePattern = function(page, col, row) {
+  if (selectedGroup) {
+    const member = selectedGroup.members.find(m => m.page === page && m.col === col && m.row === row);
+    if (member && member.is_first) {
+      return; // Reference can never be resolved
+    }
+  }
+
+  const key = getPatternKey(page, col, row);
+  if (resolvedPatterns.has(key)) {
+    resolvedPatterns.delete(key);
+  } else {
+    resolvedPatterns.add(key);
+  }
+
+  updateHeaderStats();
+  applyFilters();
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  setupUpload();
   setupFilters();
+  updateHeaderStats();
   applyFilters();
 });
 
-// Setup tab navigation
-function setupTabs() {
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  const panes = document.querySelectorAll('.tab-pane');
-
-  tabBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetId = btn.getAttribute('data-tab');
-      tabBtns.forEach(b => b.classList.remove('active'));
-      panes.forEach(p => p.classList.remove('active'));
-
-      btn.classList.add('active');
-      const targetPane = document.getElementById(targetId);
-      if (targetPane) targetPane.classList.add('active');
+// Setup local PDF upload
+function setupUpload() {
+  const fileInput = document.getElementById('pdf-upload-input');
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) handlePdfFile(file);
+      e.target.value = '';
     });
-  });
+  }
 }
 
-// Load JSON/JS data
-async function loadData() {
-  // First check if loaded via <script> tag (offline file:/// mode)
-  if (window.DUPLICATE_REPORT) {
-    duplicateReport = window.DUPLICATE_REPORT;
-  }
-  if (window.PATTERN_INDEX) {
-    patternIndex = window.PATTERN_INDEX;
+async function handlePdfFile(file) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    alert('Bitte wählen Sie eine gültige PDF-Datei aus.');
+    return;
   }
 
-  // Fallback: try fetch (if served via http://)
+  const progressBox = document.getElementById('upload-progress-box');
+  const progressText = document.getElementById('upload-progress-text');
+
+  if (progressBox) progressBox.style.display = 'inline-flex';
+  if (progressText) progressText.textContent = `Analysiere "${file.name}"...`;
+
+  try {
+    const res = await fetch('/api/analyze-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/pdf' },
+      body: file
+    });
+
+    if (!res.ok) {
+      throw new Error(`Server antwortete mit Status ${res.status}`);
+    }
+
+    const report = await res.json();
+    duplicateReport = report;
+    resolvedPatterns = new Set();
+    selectedGroup = null;
+    currentPage = 1;
+
+    if (progressText) progressText.textContent = 'Fertig!';
+
+    setTimeout(() => {
+      if (progressBox) progressBox.style.display = 'none';
+    }, 1200);
+
+    const subtitleEl = document.getElementById('app-subtitle');
+    if (subtitleEl) {
+      subtitleEl.textContent = `${report.total_patterns.toLocaleString()} Muster analysiert (${file.name})`;
+    }
+
+    updateHeaderStats();
+    applyFilters();
+  } catch (err) {
+    console.error('Fehler bei der PDF-Analyse:', err);
+    alert('Fehler bei der Analyse: ' + err.message);
+    if (progressBox) progressBox.style.display = 'none';
+  }
+}
+
+// Update header stats with open/resolved counts
+function updateHeaderStats() {
+  const headerStats = document.getElementById('header-stats');
   if (!duplicateReport) {
-    try {
-      const res = await fetch('data/symmetry_duplicates.json');
-      if (res.ok) {
-        duplicateReport = await res.json();
-      }
-    } catch (e) {
-      console.warn("Could not fetch symmetry_duplicates.json", e);
+    if (headerStats) headerStats.style.display = 'none';
+    return;
+  }
+
+  if (headerStats) headerStats.style.display = 'flex';
+
+  const totalPatternsEl = document.getElementById('stat-total-patterns');
+  const uniqueClassesEl = document.getElementById('stat-unique-classes');
+  const openGroupsEl = document.getElementById('stat-open-groups-num');
+  const resolvedEl = document.getElementById('stat-resolved-num');
+
+  if (totalPatternsEl) totalPatternsEl.textContent = duplicateReport.total_patterns.toLocaleString();
+  if (uniqueClassesEl) uniqueClassesEl.textContent = duplicateReport.unique_symmetry_classes.toLocaleString();
+
+  // Count open groups (< 2 open members = resolved)
+  let openCount = 0;
+  for (const g of duplicateReport.groups) {
+    if (!isGroupResolved(g)) {
+      openCount++;
     }
   }
 
-  if (!patternIndex) {
-    try {
-      const resIdx = await fetch('data/pattern_symmetry_index.json');
-      if (resIdx.ok) {
-        patternIndex = await resIdx.json();
-      }
-    } catch (e) {
-      console.warn("Could not fetch pattern_symmetry_index.json", e);
-    }
-  }
-
-  // Update header stats
-  if (duplicateReport) {
-    document.getElementById('results-count-badge').textContent = `${duplicateReport.duplicate_groups_count.toLocaleString()} Gruppen`;
-  }
+  if (openGroupsEl) openGroupsEl.textContent = openCount.toLocaleString();
+  if (resolvedEl) resolvedEl.textContent = resolvedPatterns.size.toLocaleString();
 }
 
 // Setup filters
 function setupFilters() {
-  const transSelect = document.getElementById('filter-trans');
-  const countSelect = document.getElementById('filter-count');
+  const statusSelect = document.getElementById('filter-status');
   const pageInput = document.getElementById('search-page-input');
   const btnPrev = document.getElementById('btn-prev-page');
   const btnNext = document.getElementById('btn-next-page');
 
-  transSelect.addEventListener('change', () => { currentPage = 1; applyFilters(); });
-  countSelect.addEventListener('change', () => { currentPage = 1; applyFilters(); });
-  pageInput.addEventListener('input', () => { currentPage = 1; applyFilters(); });
+  if (statusSelect) statusSelect.addEventListener('change', () => { currentPage = 1; applyFilters(); });
+  if (pageInput) pageInput.addEventListener('input', () => { currentPage = 1; applyFilters(); });
 
   btnPrev.addEventListener('click', () => {
     if (currentPage > 1) {
@@ -139,23 +201,29 @@ function setupFilters() {
 
 // Filter logic
 function applyFilters() {
-  if (!duplicateReport) return;
+  if (!duplicateReport) {
+    const badge = document.getElementById('results-count-badge');
+    if (badge) badge.textContent = 'Kein PDF geladen';
+    const container = document.getElementById('duplicate-groups-container');
+    if (container) {
+      container.innerHTML = '<div class="empty-state">Bitte oben auf „PDF laden & analysieren“ klicken, um ein Dokument zu laden.</div>';
+    }
+    const panel = document.getElementById('dup-detail-panel');
+    if (panel) {
+      panel.innerHTML = '<div class="empty-state">Noch kein Dokument geladen.</div>';
+    }
+    return;
+  }
 
-  const transVal = document.getElementById('filter-trans').value;
-  const countVal = document.getElementById('filter-count').value;
-  const pageQuery = document.getElementById('search-page-input').value.trim();
+  const statusVal = document.getElementById('filter-status') ? document.getElementById('filter-status').value : 'open';
+  const pageQuery = document.getElementById('search-page-input') ? document.getElementById('search-page-input').value.trim() : '';
 
   filteredGroups = duplicateReport.groups.filter(g => {
-    // Filter by count
-    if (countVal === '2' && g.count !== 2) return false;
-    if (countVal === '3' && g.count !== 3) return false;
-    if (countVal === '4+' && g.count < 4) return false;
+    const isResolved = isGroupResolved(g);
 
-    // Filter by transformation
-    if (transVal !== 'all') {
-      const hasTrans = g.members.some(m => m.relation_to_first === transVal);
-      if (!hasTrans) return false;
-    }
+    // Status filter: "open" (Standard), "all", "resolved"
+    if (statusVal === 'open' && isResolved) return false;
+    if (statusVal === 'resolved' && !isResolved) return false;
 
     // Filter by page query
     if (pageQuery) {
@@ -172,10 +240,15 @@ function applyFilters() {
   document.getElementById('results-count-badge').textContent = `${filteredGroups.length.toLocaleString()} Gruppen`;
   renderGroupList();
 
-  // Auto-select first group if available
-  if (filteredGroups.length > 0) {
+  // Keep selected group if still in filtered list, else select first
+  if (selectedGroup && filteredGroups.some(g => g.group_id === selectedGroup.group_id)) {
+    // re-render the detail panel to update resolved status
+    const currentG = filteredGroups.find(g => g.group_id === selectedGroup.group_id);
+    selectGroup(currentG);
+  } else if (filteredGroups.length > 0) {
     selectGroup(filteredGroups[0]);
   } else {
+    selectedGroup = null;
     document.getElementById('dup-detail-panel').innerHTML = '<div class="empty-state">Keine Duplikate für diese Filtereinstellungen gefunden.</div>';
   }
 }
@@ -194,8 +267,11 @@ function renderGroupList() {
   const pageItems = filteredGroups.slice(startIdx, startIdx + ITEMS_PER_PAGE);
 
   pageItems.forEach(group => {
+    const isResolved = isGroupResolved(group);
+    const openMembers = getOpenMembers(group);
+
     const item = document.createElement('div');
-    item.className = `dup-group-item ${selectedGroup && selectedGroup.group_id === group.group_id ? 'active' : ''}`;
+    item.className = `dup-group-item ${selectedGroup && selectedGroup.group_id === group.group_id ? 'active' : ''} ${isResolved ? 'group-resolved' : ''}`;
 
     const preview = document.createElement('div');
     preview.className = 'dup-item-preview';
@@ -215,7 +291,10 @@ function renderGroupList() {
     meta.className = 'group-meta';
     const firstLoc = group.members[0];
     meta.innerHTML = `
-      <div class="group-title">Gruppe #${group.group_id}</div>
+      <div class="group-title">
+        Gruppe #${group.group_id} 
+        ${isResolved ? '<span class="status-tag resolved">Gelöst</span>' : ''}
+      </div>
       <div class="group-sub">Erstes: S.${firstLoc.page} (Sp.${firstLoc.col}, Z.${firstLoc.row})</div>
     `;
 
@@ -223,8 +302,16 @@ function renderGroupList() {
     preview.appendChild(meta);
 
     const countBadge = document.createElement('span');
-    countBadge.className = 'badge-count';
-    countBadge.textContent = `${group.count}×`;
+    if (isResolved) {
+      countBadge.className = 'badge-count badge-resolved';
+      countBadge.textContent = '✓ Gelöst';
+    } else if (openMembers.length < group.count) {
+      countBadge.className = 'badge-count badge-partial';
+      countBadge.textContent = `${openMembers.length}/${group.count} offen`;
+    } else {
+      countBadge.className = 'badge-count';
+      countBadge.textContent = `${group.count}×`;
+    }
 
     item.appendChild(preview);
     item.appendChild(countBadge);
@@ -244,18 +331,36 @@ function selectGroup(group) {
   selectedGroup = group;
   const panel = document.getElementById('dup-detail-panel');
 
-  const rep = group.members[0];
+  const openMembers = getOpenMembers(group);
+  const isResolved = isGroupResolved(group);
 
   let membersHtml = '';
   group.members.forEach((m, idx) => {
-    const transMatrix = getTransformedMatrix(group.representative_matrix, m.relation_to_first);
+    const isMemberDone = isPatternResolved(m);
     const relClass = m.relation_to_first === 'identisch' ? 'identisch' : '';
 
+    let actionBtnHtml = '';
+    if (m.is_first) {
+      actionBtnHtml = `<span class="ref-preserve-badge" title="Originalmuster bleibt dauerhaft erhalten">Original (bleibt)</span>`;
+    } else {
+      actionBtnHtml = `
+        <button class="btn btn-action ${isMemberDone ? 'btn-undo' : 'btn-done'}" 
+                onclick="toggleResolvePattern(${m.page}, ${m.col}, ${m.row})"
+                title="${isMemberDone ? 'Wieder als offen markieren' : 'Dieses Duplikat als erledigt markieren'}">
+          ${isMemberDone ? '↩ Rückgängig' : '✓ Erledigt'}
+        </button>
+      `;
+    }
+
     membersHtml += `
-      <div class="member-card ${m.is_first ? 'is-rep' : ''}">
+      <div class="member-card ${m.is_first ? 'is-rep' : ''} ${isMemberDone ? 'is-resolved' : ''}">
         <div class="member-header">
-          <span class="member-loc">Seite ${m.page} (Spalte ${m.col}, Zeile ${m.row})</span>
-          <span class="member-rel-badge ${relClass}">${m.is_first ? '★ Referenz (Original)' : m.relation_name}</span>
+          <div class="member-loc-area">
+            <span class="member-loc">Seite ${m.page} (Spalte ${m.col}, Zeile ${m.row})</span>
+            <span class="member-rel-badge ${relClass}">${m.is_first ? '★ Referenz (Original)' : m.relation_name}</span>
+            ${isMemberDone ? '<span class="member-done-badge">✓ Erledigt</span>' : ''}
+          </div>
+          ${actionBtnHtml}
         </div>
         <div class="member-card-body">
           <div class="pattern-matrix" id="member-matrix-${group.group_id}-${idx}"></div>
@@ -272,17 +377,22 @@ function selectGroup(group) {
   panel.innerHTML = `
     <div class="detail-header">
       <div>
-        <h3>Duplikat-Gruppe #${group.group_id}</h3>
-        <p style="color:var(--text-secondary); font-size:0.88rem;">
-          Dieses Muster kommt <strong>${group.count} mal</strong> im Dokument vor (inkl. Drehungen und Spiegelungen).
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <h3>Duplikat-Gruppe #${group.group_id}</h3>
+          ${isResolved ? '<span class="status-tag resolved">✓ Konflikt gelöst</span>' : ''}
+        </div>
+        <p style="color:var(--text-secondary); font-size:0.88rem; margin-top:0.3rem;">
+          ${group.count} Vorkommen gesamt · <strong style="color:${isResolved ? 'var(--accent-emerald)' : 'var(--text-primary)'}">${openMembers.length} noch offen</strong>.
         </p>
       </div>
       <div>
-        <span class="badge-count" style="font-size:0.9rem; padding:0.35rem 0.8rem;">${group.count} Fundstellen</span>
+        <span class="badge-count ${isResolved ? 'badge-resolved' : ''}" style="font-size:0.9rem; padding:0.35rem 0.8rem;">
+          ${isResolved ? '✓ Gelöst' : `${openMembers.length} offene Fundstellen`}
+        </span>
       </div>
     </div>
 
-    <h4>Alle Fundstellen dieses Musters:</h4>
+    <h4>Fundstellen dieses Musters:</h4>
     <div class="detail-members-grid">
       ${membersHtml}
     </div>
@@ -325,122 +435,5 @@ function renderMatrix(mat, containerId, cellSize = 22) {
       cell.style.height = `${cellSize}px`;
       container.appendChild(cell);
     }
-  }
-}
-
-// Tab 2: Checker Form
-function setupChecker() {
-  const btn = document.getElementById('btn-run-check');
-  btn.addEventListener('click', runChecker);
-}
-
-function runChecker() {
-  const page = parseInt(document.getElementById('check-page').value, 10);
-  const col = parseInt(document.getElementById('check-col').value, 10);
-  const row = parseInt(document.getElementById('check-row').value, 10);
-  const resultArea = document.getElementById('checker-result-area');
-
-  if (isNaN(page) || isNaN(col) || isNaN(row) || page < 1 || page > 159 || col < 1 || col > 12 || row < 1 || row > 18) {
-    resultArea.innerHTML = '<div style="color:var(--accent-rose);">Bitte gültige Werte eingeben (Seite 1–159, Spalte 1–12, Zeile 1–18).</div>';
-    return;
-  }
-
-  const key = `${page}_${col}_${row}`;
-  const hit = patternIndex ? patternIndex[key] : null;
-
-  if (!hit || !duplicateReport) {
-    resultArea.innerHTML = `
-      <div class="callout-card" style="border-color: rgba(52, 211, 153, 0.4);">
-        <div class="callout-icon">✨</div>
-        <div class="callout-text">
-          <h3>Kein Duplikat gefunden</h3>
-          <p>Das Muster auf <strong>Seite ${page}, Spalte ${col}, Zeile ${row}</strong> ist <strong>vollkommen einzigartig</strong> im gesamten Dokument (auch unter Drehung und Spiegelung).</p>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  const group = duplicateReport.groups.find(g => g.group_id === hit.group_id);
-  if (!group) return;
-
-  const otherMembers = group.members.filter(m => !(m.page === page && m.col === col && m.row === row));
-
-  let otherList = '';
-  otherMembers.forEach(m => {
-    otherList += `
-      <li style="margin-bottom: 0.5rem;">
-        <strong>Seite ${m.page}</strong>, Spalte ${m.col}, Zeile ${m.row} 
-        <span class="member-rel-badge" style="margin-left:0.5rem;">${m.relation_name}</span>
-      </li>
-    `;
-  });
-
-  resultArea.innerHTML = `
-    <div class="card" style="border-color: rgba(244, 63, 94, 0.5); background: rgba(244, 63, 94, 0.05);">
-      <h3 style="color:var(--accent-rose); margin-bottom: 0.5rem;">⚠️ Duplikat gefunden! (Gruppe #${group.group_id})</h3>
-      <p style="margin-bottom: 1rem;">
-        Das Muster auf <strong>Seite ${page}, Spalte ${col}, Zeile ${row}</strong> existiert <strong>${group.count} mal</strong> im Dokument:
-      </p>
-      <div style="display:flex; gap: 2rem; align-items:flex-start; flex-wrap:wrap;">
-        <div class="pattern-matrix" id="checker-pattern-grid"></div>
-        <div style="flex:1;">
-          <h4>Weitere Vorkommen (${otherMembers.length}):</h4>
-          <ul style="padding-left:1.25rem; margin-top:0.5rem; color:var(--text-secondary);">
-            ${otherList}
-          </ul>
-        </div>
-      </div>
-    </div>
-  `;
-
-  renderMatrix(group.representative_matrix, 'checker-pattern-grid', 26);
-}
-
-// Tab 3: Transformer
-function setupTransformer() {
-  renderMatrix(sampleMatrix, 'transform-orig-grid', 26);
-  renderMatrix(sampleMatrix, 'transform-res-grid', 26);
-
-  const btns = document.querySelectorAll('.trans-btn');
-  btns.forEach(b => {
-    b.addEventListener('click', () => {
-      btns.forEach(btn => btn.classList.remove('active'));
-      b.classList.add('active');
-
-      const opKey = b.getAttribute('data-op');
-      const transformed = getTransformedMatrix(sampleMatrix, opKey);
-      renderMatrix(transformed, 'transform-res-grid', 26);
-
-      document.getElementById('transform-result-title').textContent = `Transformiert: ${TRANS_NAMES[opKey]}`;
-      document.getElementById('transform-op-desc').textContent = getOperationDescription(opKey);
-    });
-  });
-
-  document.getElementById('btn-sample-pattern').addEventListener('click', () => {
-    if (duplicateReport && duplicateReport.groups.length > 0) {
-      const randIdx = Math.floor(Math.random() * Math.min(50, duplicateReport.groups.length));
-      sampleMatrix = duplicateReport.groups[randIdx].representative_matrix;
-      renderMatrix(sampleMatrix, 'transform-orig-grid', 26);
-
-      const activeBtn = document.querySelector('.trans-btn.active');
-      const opKey = activeBtn ? activeBtn.getAttribute('data-op') : 'identisch';
-      const transformed = getTransformedMatrix(sampleMatrix, opKey);
-      renderMatrix(transformed, 'transform-res-grid', 26);
-    }
-  });
-}
-
-function getOperationDescription(opKey) {
-  switch (opKey) {
-    case 'identisch': return 'Originalzustand unverändert.';
-    case 'rot90': return 'Um 90 Grad im Uhrzeigersinn gedreht.';
-    case 'rot180': return 'Um 180 Grad gedreht (Kopfstehend).';
-    case 'rot270': return 'Um 270 Grad im Uhrzeigersinn (oder 90° gegen UZS) gedreht.';
-    case 'spiegel_h': return 'An der horizontalen Achse gespiegelt (oben und unten vertauscht).';
-    case 'spiegel_v': return 'An der vertikalen Achse gespiegelt (links und rechts vertauscht).';
-    case 'diag_main': return 'An der Hauptdiagonale gespiegelt (transponiert).';
-    case 'diag_anti': return 'An der Nebendiagonale gespiegelt.';
-    default: return '';
   }
 }
