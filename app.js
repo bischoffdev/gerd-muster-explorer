@@ -107,17 +107,9 @@ async function handlePdfFile(file) {
   if (progressText) progressText.textContent = `Analysiere "${file.name}"...`;
 
   try {
-    const res = await fetch('/api/analyze-pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/pdf' },
-      body: file
-    });
+    const arrayBuffer = await file.arrayBuffer();
+    const report = await window.analyzePdfArrayBuffer(arrayBuffer);
 
-    if (!res.ok) {
-      throw new Error(`Server antwortete mit Status ${res.status}`);
-    }
-
-    const report = await res.json();
     duplicateReport = report;
     resolvedPatterns = new Set();
     selectedGroup = null;
