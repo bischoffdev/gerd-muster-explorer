@@ -108,14 +108,20 @@ async function handlePdfFile(file) {
 
   try {
     const arrayBuffer = await file.arrayBuffer();
-    const report = await window.analyzePdfArrayBuffer(arrayBuffer);
+    const report = await window.analyzePdfArrayBuffer(arrayBuffer, (page, total) => {
+      if (progressText) {
+        progressText.textContent = `Analysiere Seite ${page} von ${total}...`;
+      }
+    });
 
     duplicateReport = report;
     resolvedPatterns = new Set();
     selectedGroup = null;
     currentPage = 1;
 
-    if (progressText) progressText.textContent = 'Fertig!';
+    if (progressText) {
+      progressText.textContent = `Fertig! (${report.total_patterns.toLocaleString()} Muster, ${report.duplicate_groups_count.toLocaleString()} Duplikate)`;
+    }
 
     setTimeout(() => {
       if (progressBox) progressBox.style.display = 'none';

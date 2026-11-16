@@ -57,51 +57,21 @@
   }
 
   async function decompressSlice(sliceUint8) {
-    // Try standard 'deflate' (RFC 1950 zlib format)
     try {
       const ds = new DecompressionStream('deflate');
-      const writer = ds.writable.getWriter();
-      writer.write(sliceUint8);
-      writer.close();
-      const chunks = [];
-      const reader = ds.readable.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-      return concatenateUint8(chunks);
+      const res = new Response(sliceUint8).body.pipeThrough(ds);
+      const ab = await new Response(res).arrayBuffer();
+      return new Uint8Array(ab);
     } catch {
-      // Fallback: 'deflate-raw' (RFC 1951 raw deflate)
       try {
         const ds = new DecompressionStream('deflate-raw');
-        const writer = ds.writable.getWriter();
-        writer.write(sliceUint8);
-        writer.close();
-        const chunks = [];
-        const reader = ds.readable.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-        }
-        return concatenateUint8(chunks);
+        const res = new Response(sliceUint8).body.pipeThrough(ds);
+        const ab = await new Response(res).arrayBuffer();
+        return new Uint8Array(ab);
       } catch {
         return sliceUint8;
       }
     }
-  }
-
-  function concatenateUint8(arrays) {
-    let totalLength = 0;
-    for (const arr of arrays) totalLength += arr.length;
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const arr of arrays) {
-      result.set(arr, offset);
-      offset += arr.length;
-    }
-    return result;
   }
 
   function uint8ToLatin1(uint8) {
@@ -114,16 +84,16 @@
     return str;
   }
 
-  window.analyzePdfArrayBuffer = async function (arrayBuffer) {
+  window.analyzePdfArrayBuffer = async function (arrayBuffer, onProgress) {
     const uint8 = new Uint8Array(arrayBuffer);
     const strBuf = uint8ToLatin1(uint8);
 
     // Map object offsets
     const objMap = new Map();
-    const reObj = /(\d+)\s+0\s+obj/g;
+    const reObj = /(?:^|[\r\n\s])(\d+)\s+0\s+obj/g;
     let m;
     while ((m = reObj.exec(strBuf)) !== null) {
-      objMap.set(parseInt(m[1]), m.index);
+      objMap.set(parseInt(m[1]), m.index + m[0].indexOf(m[1]));
     }
 
     // Find all pages
@@ -142,9 +112,24 @@
       let dataStart = streamStart + 6;
       if (uint8[dataStart] === 0x0d && uint8[dataStart + 1] === 0x0a) dataStart += 2;
       else if (uint8[dataStart] === 0x0a || uint8[dataStart] === 0x0d) dataStart += 1;
-      const streamEnd = strBuf.indexOf('endstream', dataStart);
-      if (streamEnd === -1) return '';
-      const slice = uint8.subarray(dataStart, streamEnd);
+
+      let sliceLen = -1;
+      const dictStr = strBuf.slice(off, streamStart);
+      const lenMatch = dictStr.match(/\/Length\s+(\d+)/);
+      if (lenMatch) sliceLen = parseInt(lenMatch[1], 10);
+
+      let slice;
+      if (sliceLen > 0 && dataStart + sliceLen <= uint8.length) {
+        slice = uint8.subarray(dataStart, dataStart + sliceLen);
+      } else {
+        let streamEnd = strBuf.indexOf('endstream', dataStart);
+        if (streamEnd === -1) return '';
+        while (streamEnd > dataStart && (uint8[streamEnd - 1] === 0x0a || uint8[streamEnd - 1] === 0x0d || uint8[streamEnd - 1] === 0x20)) {
+          streamEnd--;
+        }
+        slice = uint8.subarray(dataStart, streamEnd);
+      }
+
       const decompressed = await decompressSlice(slice);
       return uint8ToLatin1(decompressed);
     }
@@ -152,6 +137,10 @@
     const allPatterns = [];
 
     for (let p = 0; p < pageIndices.length; p++) {
+      if (onProgress && p % 5 === 0) {
+        onProgress(p + 1, pageIndices.length);
+        await new Promise(r => setTimeout(r, 0));
+      }
       const pIdx = pageIndices[p];
       const objStart = strBuf.lastIndexOf('obj', pIdx);
       const objEnd = strBuf.indexOf('endobj', pIdx);
